@@ -12,8 +12,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 
 /**
- * @author lan
- * @since 2017-09-20
+ * @Author: yangrusheng
+ * @Description:
+ * @Date: Created in 18:37 2019/8/17
+ * @Modified By:
  */
 public final class JsonMapper {
 
