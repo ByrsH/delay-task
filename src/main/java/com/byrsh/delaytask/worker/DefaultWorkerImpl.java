@@ -38,6 +38,7 @@ public class DefaultWorkerImpl implements Worker {
 
     private final DelayTaskClient client;
     private final ExecutorService executor;
+    private final ExecutorService checkExecutor;
     private final Map<String, Class> delayTaskHandlerMap = new ConcurrentHashMap<>();
     private final List<String> keys = new CopyOnWriteArrayList<>();
     private final AtomicInteger sign = new AtomicInteger(0);
@@ -119,6 +120,14 @@ public class DefaultWorkerImpl implements Worker {
 
         this.executor = new ThreadPoolExecutor(corePoolSize, maxPoolSize, keepAliveTime, TimeUnit.SECONDS,
                 new ArrayBlockingQueue<>(maxTaskAmount), new DelayTaskThreadFactory());
+
+        //检查线程
+        ThreadFactory namedThreadFactory = new ThreadFactoryBuilder()
+                .setNameFormat("delay-task-check-pool-%d").build();
+        this.checkExecutor = new ThreadPoolExecutor(1, 1,
+                0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<Runnable>(1024), namedThreadFactory,
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     private void scanDelayTaskHandler(String scanPackageName) {
@@ -158,15 +167,7 @@ public class DefaultWorkerImpl implements Worker {
                 if (sign.intValue() == 0) {
                     CheckoutWorker checkoutWorker = new DefaultCheckoutWorkerImpl(client, keys, checkoutSleepTime,
                             executeTimeoutTime, taskNumber);
-
-                    ThreadFactory namedThreadFactory = new ThreadFactoryBuilder()
-                            .setNameFormat("delay-task-worker-pool-%d").build();
-                    ExecutorService singleThreadPool = new ThreadPoolExecutor(1, 1,
-                            0L, TimeUnit.MILLISECONDS,
-                            new LinkedBlockingQueue<Runnable>(1024), namedThreadFactory,
-                            new ThreadPoolExecutor.AbortPolicy());
-
-                    singleThreadPool.execute(checkoutWorker);
+                    checkExecutor.execute(checkoutWorker);
                     LOGGER.info("checkoutWorker thread start.");
                     sign.incrementAndGet();
                 }
@@ -174,6 +175,12 @@ public class DefaultWorkerImpl implements Worker {
                 LOGGER.error("defaultWorkerImpl thread run Exception.", e);
             }
         }
+    }
+
+    @Override
+    public void destroy() {
+        executor.shutdown();
+        checkExecutor.shutdown();
     }
 
     private void handlerTasks(List<Task> tasks, Class handlerClass, String key) {

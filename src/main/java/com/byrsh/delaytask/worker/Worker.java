@@ -7,5 +7,5 @@ package com.byrsh.delaytask.worker;
  * @Modified By:
  */
 public interface Worker extends Runnable {
-
+    void destroy();
 }
