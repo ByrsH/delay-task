@@ -7,6 +7,7 @@ import com.byrsh.delaytask.TaskHandler;
 import com.byrsh.delaytask.annotation.DelayTaskHandler;
 import com.byrsh.delaytask.client.DelayTaskClient;
 import com.byrsh.delaytask.util.JsonMapper;
+import com.byrsh.delaytask.util.WorkerControl;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -152,6 +153,11 @@ public class DefaultWorkerImpl implements Worker {
             try {
                 //sleep 时间间隔，放在前面是为了防止 handle 类初始化时某些属性获取不到。
                 Thread.sleep(workerSleepTime);
+
+                // 判断工作线程状态
+                while (!WorkerControl.isExecute()) {
+                }
+
 
                 // 循环具体延迟任务处理类，从 redis 获取任务执行
                 for (Map.Entry<String, Class> entry : delayTaskHandlerMap.entrySet()) {

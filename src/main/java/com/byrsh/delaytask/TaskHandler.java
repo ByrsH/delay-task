@@ -27,6 +27,10 @@ public abstract class TaskHandler implements Callable<Boolean> {
     @Override
     public Boolean call() throws Exception {
         init();
+        boolean before = beforeExecute();
+        if (!before) {
+            return false;
+        }
         Boolean result = execute();
         afterExecuted(result);
         return result;
@@ -36,6 +40,12 @@ public abstract class TaskHandler implements Callable<Boolean> {
      * 初始化一些成员变量
      */
     public abstract void init();
+
+    /**
+     * 任务执行前操作
+     * @return 是否继续执行
+     */
+    public abstract Boolean beforeExecute();
 
     /**
      * 任务执行

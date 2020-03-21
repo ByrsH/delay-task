@@ -22,6 +22,11 @@ public class SimpleHandler extends TaskHandler {
     }
 
     @Override
+    public Boolean beforeExecute() {
+        return true;
+    }
+
+    @Override
     public Boolean execute() {
         Task task = getTask();
         LOGGER.info("task ====== " + task.getContent() + " key: " + getKey());
