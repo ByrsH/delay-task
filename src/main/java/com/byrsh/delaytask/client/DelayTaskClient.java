@@ -10,6 +10,7 @@ import org.apache.logging.log4j.Logger;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.exceptions.JedisNoScriptException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -210,6 +211,10 @@ public class DelayTaskClient {
             jedis.evalsha(popSpecifyLuaSha, 2, key + "_executing", key,
                     JsonMapper.writeValueAsString(task), String.valueOf(task.getDelayTime()));
             return true;
+        } catch (JedisNoScriptException e) {
+            loadRedisScripts();
+            LOGGER.error("delay task client re add task exception, reload scripts. Exception: ", e);
+            return false;
         } catch (Exception e) {
             LOGGER.error("delay task client re add task exception: ", e);
             return false;
@@ -248,6 +253,10 @@ public class DelayTaskClient {
             }
             json += "]";
             return JsonMapper.readValue(json, new TypeReference<List<Task>>() {});
+        } catch (JedisNoScriptException e) {
+            loadRedisScripts();
+            LOGGER.error("delay task client move tasks exception, reload scripts. Exception: ", e);
+            return new ArrayList<>();
         } catch (Exception e) {
             LOGGER.error("delay task client move tasks exception: ", e);
             return new ArrayList<>();
