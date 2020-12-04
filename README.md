@@ -13,8 +13,9 @@
 
 参考测试用例：https://github.com/ByrsH/delay-task/blob/master/src/test/java/com/byrsh/delaytask/DelayTaskTest.java
 
-## 未来实现功能
+## 支持 redis 模式
 
-支持 redis 集群部署模式
+1、单机模式
+2、cluster 模式
 
 
