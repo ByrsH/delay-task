@@ -137,7 +137,8 @@ public class DefaultWorkerImpl implements Worker {
         for (Class<?> classObj: annotatedClasses) {
             if (TaskHandler.class.isAssignableFrom(classObj)) {
                 DelayTaskHandler handler = classObj.getAnnotation(DelayTaskHandler.class);
-                delayTaskHandlerMap.put(handler.delayTaskZSetName(), classObj);
+                // 加 {} 是为了在 cluster 模式下，确保两个 zset 在同一个节点，分布在不同节点会影响 script 执行。
+                delayTaskHandlerMap.put("{" + handler.delayTaskZSetName() + "}", classObj);
                 keys.add(handler.delayTaskZSetName());
             }
         }
@@ -193,10 +194,11 @@ public class DefaultWorkerImpl implements Worker {
         for (Task task: tasks) {
             try {
                 if (!isExecuteTask(task)) {
+                    Long currentTime = System.currentTimeMillis();
                     //删除过期任务
                     client.removeExpireTask(task, key);
-                    LOGGER.info("delay task:{} expire, so remove task",
-                            JsonMapper.writeValueAsString(task));
+                    LOGGER.info("delay task:{} expire, so remove task, current time: {}",
+                            JsonMapper.writeValueAsString(task), currentTime);
                     continue;
                 }
                 TaskHandler handler = (TaskHandler) handlerClass.newInstance();

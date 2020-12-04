@@ -19,6 +19,11 @@ public class Config {
     private int redisPort;
 
     /**
+     * redis cluster nodes host and port info
+     */
+    private String clusterNodes;
+
+    /**
      * redis password
      */
     private String redisPassword = null;
@@ -31,7 +36,7 @@ public class Config {
     /**
      * 连接超时时间，单位：ms
      */
-    private int redisTimeout;
+    private int redisTimeout = 2000;
 
     /**
      * redisPool最大连接数
@@ -97,6 +102,14 @@ public class Config {
      * 任务执行超时时间，超过将重新放入待执行集合
      */
     private long executeTimeoutTime;
+
+    public String getClusterNodes() {
+        return clusterNodes;
+    }
+
+    public void setClusterNodes(String clusterNodes) {
+        this.clusterNodes = clusterNodes;
+    }
 
     public long getCheckoutSleepTime() {
         return checkoutSleepTime;

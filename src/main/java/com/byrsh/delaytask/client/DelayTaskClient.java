@@ -7,15 +7,11 @@ import com.byrsh.delaytask.util.ScriptUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.*;
 import redis.clients.jedis.exceptions.JedisNoScriptException;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @Author: yangrusheng
@@ -32,10 +28,14 @@ public class DelayTaskClient {
      */
     private final JedisPool jedisPool;
 
+    private final JedisCluster jedisCluster;
+
     /**
      * 配置
      */
     private final Config config;
+
+    private static Map<String, Boolean> scriptLoadMap = new ConcurrentHashMap<>(8);
 
     private static final String POP_LUA = "/script/pop.lua";
     private static final String POP_SPECIFY_LUA = "/script/pop_specify.lua";
@@ -46,9 +46,14 @@ public class DelayTaskClient {
 
     public DelayTaskClient(JedisPool jedisPool) {
         this.jedisPool = jedisPool;
+        this.jedisCluster = null;
         this.config = new Config();
-        //加载lua脚本
-        loadRedisScripts();
+    }
+
+    public DelayTaskClient(JedisCluster jedisCluster) {
+        this.jedisCluster = jedisCluster;
+        this.jedisPool = null;
+        this.config = new Config();
     }
 
     public DelayTaskClient(Config config) {
@@ -68,10 +73,20 @@ public class DelayTaskClient {
             poolConfig.setMinIdle(this.config.getRedisMinIdle());
         }
         poolConfig.setMaxWaitMillis(this.config.getRedisMaxWaitMillis());
-        this.jedisPool = new JedisPool(poolConfig, this.config.getRedisHost(), this.config.getRedisPort(),
-                this.config.getRedisTimeout(), this.config.getRedisPassword(), this.config.getRedisIndex());
-        //加载lua脚本
-        loadRedisScripts();
+        if (this.config.getClusterNodes() != null) {
+            String[] clusterNodes = this.config.getClusterNodes().split(",");
+            Set<HostAndPort> nodes = new HashSet<>();
+            for (String nodeStr: clusterNodes) {
+                String[] nodeInfo = nodeStr.split(":");
+                nodes.add(new HostAndPort(nodeInfo[0], Integer.valueOf(nodeInfo[1])));
+            }
+            this.jedisCluster = new JedisCluster(nodes, this.config.getRedisTimeout(), poolConfig);
+            this.jedisPool = null;
+        } else {
+            this.jedisPool = new JedisPool(poolConfig, this.config.getRedisHost(), this.config.getRedisPort(),
+                    this.config.getRedisTimeout(), this.config.getRedisPassword(), this.config.getRedisIndex());
+            this.jedisCluster = null;
+        }
     }
 
     /**
@@ -84,12 +99,23 @@ public class DelayTaskClient {
         if (task == null || key == null || key.length() == 0) {
             throw new IllegalArgumentException("task must not be null, key must not be null or empty string.");
         }
-        try (Jedis jedis = jedisPool.getResource()) {
-            jedis.zadd(key, task.getDelayTime().doubleValue(), JsonMapper.writeValueAsString(task));
-            return true;
-        } catch (Exception e) {
-            LOGGER.error("delay task client add task exception: ", e);
-            return false;
+        key = hashTagKey(key);
+        if (jedisCluster != null) {
+            try {
+                jedisCluster.zadd(key, task.getDelayTime().doubleValue(), JsonMapper.writeValueAsString(task));
+                return true;
+            } catch (Exception e) {
+                LOGGER.error("delay task client add task exception: ", e);
+                return false;
+            }
+        } else {
+            try (Jedis jedis = jedisPool.getResource()) {
+                jedis.zadd(key, task.getDelayTime().doubleValue(), JsonMapper.writeValueAsString(task));
+                return true;
+            } catch (Exception e) {
+                LOGGER.error("delay task client add task exception: ", e);
+                return false;
+            }
         }
     }
 
@@ -104,16 +130,27 @@ public class DelayTaskClient {
             throw new IllegalArgumentException("tasks must not be null or empty, key must not be null or "
                     + "empty String.");
         }
-        try (Jedis jedis = jedisPool.getResource()) {
-            Map<String, Double> scoreMembers = new HashMap<>();
-            for (Task task : tasks) {
-                scoreMembers.put(JsonMapper.writeValueAsString(task), task.getDelayTime().doubleValue());
+        key = hashTagKey(key);
+        Map<String, Double> scoreMembers = new HashMap<>();
+        for (Task task : tasks) {
+            scoreMembers.put(JsonMapper.writeValueAsString(task), task.getDelayTime().doubleValue());
+        }
+        if (jedisCluster != null) {
+            try {
+                jedisCluster.zadd(key, scoreMembers);
+                return true;
+            } catch (Exception e) {
+                LOGGER.error("delay task client add task exception: ", e);
+                return false;
             }
-            jedis.zadd(key, scoreMembers);
-            return true;
-        } catch (Exception e) {
-            LOGGER.error("delay task client add task exception: ", e);
-            return false;
+        } else {
+            try (Jedis jedis = jedisPool.getResource()) {
+                jedis.zadd(key, scoreMembers);
+                return true;
+            } catch (Exception e) {
+                LOGGER.error("delay task client add task exception: ", e);
+                return false;
+            }
         }
     }
 
@@ -126,6 +163,7 @@ public class DelayTaskClient {
         if (key == null || key.length() == 0) {
             throw new IllegalArgumentException("key must not be null or empty String.");
         }
+        key = hashTagKey(key);
         List<Task> tasks = popTasks(key, 1);
         if (tasks == null || tasks.isEmpty()) {
             return null;
@@ -141,6 +179,7 @@ public class DelayTaskClient {
      * @return 延迟任务列表
      */
     public List<Task> popTasks(String key, int number) {
+        key = hashTagKey(key);
         return moveTasks(key, key + "_executing", number, System.currentTimeMillis());
     }
 
@@ -154,12 +193,23 @@ public class DelayTaskClient {
         if (task == null || key == null || key.length() == 0) {
             throw new IllegalArgumentException("task must not be null, key must not be null or empty string.");
         }
-        try (Jedis jedis = jedisPool.getResource()) {
-            jedis.zrem(key, JsonMapper.writeValueAsString(task));
-            return true;
-        } catch (Exception e) {
-            LOGGER.error("delay task client add task exception: ", e);
-            return false;
+        key = hashTagKey(key);
+        if (jedisCluster != null) {
+            try {
+                jedisCluster.zrem(key, JsonMapper.writeValueAsString(task));
+                return true;
+            } catch (Exception e) {
+                LOGGER.error("delay task client add task exception: ", e);
+                return false;
+            }
+        } else {
+            try (Jedis jedis = jedisPool.getResource()) {
+                jedis.zrem(key, JsonMapper.writeValueAsString(task));
+                return true;
+            } catch (Exception e) {
+                LOGGER.error("delay task client add task exception: ", e);
+                return false;
+            }
         }
     }
 
@@ -170,6 +220,7 @@ public class DelayTaskClient {
      * @return 执行结果
      */
     public Boolean removeExecutedTask(Task task, String key) {
+        key = hashTagKey(key);
         return cancelTask(task, key + "_executing");
     }
 
@@ -180,6 +231,7 @@ public class DelayTaskClient {
      * @return 执行结果
      */
     public Boolean removeExpireTask(Task task, String key) {
+        key = hashTagKey(key);
         return removeExecutedTask(task, key);
     }
 
@@ -189,6 +241,7 @@ public class DelayTaskClient {
      * @return
      */
     public Boolean reAddTimeoutHandlerTask(String key, int number, long executeTimeoutTime) {
+        key = hashTagKey(key);
         List<Task> tasks = moveTasks(key + "_executing", key, number, System.currentTimeMillis() - executeTimeoutTime);
         if (tasks != null) {
             return true;
@@ -207,27 +260,63 @@ public class DelayTaskClient {
         if (task == null || key == null || key.length() == 0) {
             throw new IllegalArgumentException("task must not be null, key must not be null or empty string.");
         }
-        try (Jedis jedis = jedisPool.getResource()) {
-            jedis.evalsha(popSpecifyLuaSha, 2, key + "_executing", key,
-                    JsonMapper.writeValueAsString(task), String.valueOf(task.getDelayTime()));
-            return true;
-        } catch (JedisNoScriptException e) {
-            loadRedisScripts();
-            LOGGER.error("delay task client re add task exception, reload scripts. Exception: ", e);
-            return false;
-        } catch (Exception e) {
-            LOGGER.error("delay task client re add task exception: ", e);
-            return false;
+        key = hashTagKey(key);
+        if (scriptLoadMap.get(key) == null || !scriptLoadMap.get(key)) {
+            loadRedisScripts(key);
+        }
+        if (jedisCluster != null) {
+            try {
+                jedisCluster.evalsha(popSpecifyLuaSha, 2, key + "_executing", key,
+                        JsonMapper.writeValueAsString(task), String.valueOf(task.getDelayTime()));
+                return true;
+            } catch (JedisNoScriptException e) {
+                loadRedisScripts(key);
+                LOGGER.error("delay task client re add task exception, reload scripts. Exception: ", e);
+                return false;
+            } catch (Exception e) {
+                LOGGER.error("delay task client re add task exception: ", e);
+                return false;
+            }
+        } else {
+            try (Jedis jedis = jedisPool.getResource()) {
+                jedis.evalsha(popSpecifyLuaSha, 2, key + "_executing", key,
+                        JsonMapper.writeValueAsString(task), String.valueOf(task.getDelayTime()));
+                return true;
+            } catch (JedisNoScriptException e) {
+                loadRedisScripts(key);
+                LOGGER.error("delay task client re add task exception, reload scripts. Exception: ", e);
+                return false;
+            } catch (Exception e) {
+                LOGGER.error("delay task client re add task exception: ", e);
+                return false;
+            }
         }
     }
 
-    private void loadRedisScripts() {
-        try (Jedis jedis = jedisPool.getResource()) {
-            this.popLuaSha = jedis.scriptLoad(ScriptUtil.readScript(POP_LUA));
-            this.popSpecifyLuaSha = jedis.scriptLoad(ScriptUtil.readScript(POP_SPECIFY_LUA));
-        } catch (Exception e) {
-            LOGGER.error("delay task client load redis scripts exception: ", e);
-            throw new RuntimeException(e);
+    /**
+     * 加载脚本
+     * @param key slotKey
+     */
+    private void loadRedisScripts(String key) {
+        key = hashTagKey(key);
+        if (jedisCluster != null) {
+            try {
+                this.popLuaSha = jedisCluster.scriptLoad(ScriptUtil.readScript(POP_LUA), key);
+                this.popSpecifyLuaSha = jedisCluster.scriptLoad(ScriptUtil.readScript(POP_SPECIFY_LUA), key);
+                scriptLoadMap.put(key, true);
+            } catch (Exception e) {
+                LOGGER.error("delay task client load redis scripts exception: ", e);
+                throw new RuntimeException(e);
+            }
+        } else {
+            try (Jedis jedis = jedisPool.getResource()) {
+                this.popLuaSha = jedis.scriptLoad(ScriptUtil.readScript(POP_LUA));
+                this.popSpecifyLuaSha = jedis.scriptLoad(ScriptUtil.readScript(POP_SPECIFY_LUA));
+                scriptLoadMap.put(key, true);
+            } catch (Exception e) {
+                LOGGER.error("delay task client load redis scripts exception: ", e);
+                throw new RuntimeException(e);
+            }
         }
     }
 
@@ -239,27 +328,66 @@ public class DelayTaskClient {
         if (number <= 0) {
             return new ArrayList<>();
         }
-        try (Jedis jedis = jedisPool.getResource()) {
-            List<String> list = (List<String>) jedis.evalsha(popLuaSha, 2, sourceKey, targetKey,
-                    String.valueOf(number), String.valueOf(score));
-            StringBuilder sb = new StringBuilder();
-            String json = "[";
-            for (String item: list) {
-                sb.append(item);
-                sb.append(",");
+        if (scriptLoadMap.get(sourceKey) == null || !scriptLoadMap.get(sourceKey)) {
+            loadRedisScripts(sourceKey);
+        }
+        if (jedisCluster != null) {
+            try {
+                List<String> list = (List<String>) jedisCluster.evalsha(popLuaSha, 2, sourceKey, targetKey,
+                        String.valueOf(number), String.valueOf(score));
+                return parseTasks(list);
+            } catch (JedisNoScriptException e) {
+                loadRedisScripts(sourceKey);
+                LOGGER.error("delay task client move tasks exception, reload scripts. Exception: ", e);
+                return new ArrayList<>();
+            } catch (Exception e) {
+                LOGGER.error("delay task client move tasks exception: ", e);
+                return new ArrayList<>();
             }
-            if (sb.length() > 1) {
-                json += sb.substring(0, sb.length() - 1);
+
+        } else {
+            try (Jedis jedis = jedisPool.getResource()) {
+                List<String> list = (List<String>) jedis.evalsha(popLuaSha, 2, sourceKey, targetKey,
+                        String.valueOf(number), String.valueOf(score));
+                return parseTasks(list);
+            } catch (JedisNoScriptException e) {
+                loadRedisScripts(sourceKey);
+                LOGGER.error("delay task client move tasks exception, reload scripts. Exception: ", e);
+                return new ArrayList<>();
+            } catch (Exception e) {
+                LOGGER.error("delay task client move tasks exception: ", e);
+                return new ArrayList<>();
             }
-            json += "]";
-            return JsonMapper.readValue(json, new TypeReference<List<Task>>() {});
-        } catch (JedisNoScriptException e) {
-            loadRedisScripts();
-            LOGGER.error("delay task client move tasks exception, reload scripts. Exception: ", e);
-            return new ArrayList<>();
-        } catch (Exception e) {
-            LOGGER.error("delay task client move tasks exception: ", e);
-            return new ArrayList<>();
+        }
+    }
+
+    private List<Task> parseTasks(List<String> list) {
+        StringBuilder sb = new StringBuilder();
+        String json = "[";
+        for (String item : list) {
+            sb.append(item);
+            sb.append(",");
+        }
+        if (sb.length() > 1) {
+            json += sb.substring(0, sb.length() - 1);
+        }
+        json += "]";
+        return JsonMapper.readValue(json, new TypeReference<List<Task>>() {
+        });
+    }
+
+    /**
+     * 使用 key hash tag
+     * @return
+     */
+    private String hashTagKey(String key) {
+        if (key == null) {
+            return key;
+        }
+        if (key.startsWith("{") && key.contains("}")) {
+            return key;
+        } else {
+            return "{" + key + "}";
         }
     }
 
