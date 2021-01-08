@@ -24,6 +24,16 @@ public class Config {
     private String clusterNodes;
 
     /**
+     * redis sentinel nodes host and port info
+     */
+    private String sentinelNodes;
+
+    /**
+     * redis sentinel master name
+     */
+    private String sentinelMaster;
+
+    /**
      * redis password
      */
     private String redisPassword = null;
@@ -102,6 +112,22 @@ public class Config {
      * 任务执行超时时间，超过将重新放入待执行集合
      */
     private long executeTimeoutTime;
+
+    public String getSentinelNodes() {
+        return sentinelNodes;
+    }
+
+    public void setSentinelNodes(String sentinelNodes) {
+        this.sentinelNodes = sentinelNodes;
+    }
+
+    public String getSentinelMaster() {
+        return sentinelMaster;
+    }
+
+    public void setSentinelMaster(String sentinelMaster) {
+        this.sentinelMaster = sentinelMaster;
+    }
 
     public String getClusterNodes() {
         return clusterNodes;

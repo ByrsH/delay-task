@@ -30,6 +30,8 @@ public class DelayTaskClient {
 
     private final JedisCluster jedisCluster;
 
+    private final JedisSentinelPool jedisSentinelPool;
+
     /**
      * 配置
      */
@@ -47,11 +49,20 @@ public class DelayTaskClient {
     public DelayTaskClient(JedisPool jedisPool) {
         this.jedisPool = jedisPool;
         this.jedisCluster = null;
+        this.jedisSentinelPool = null;
         this.config = new Config();
     }
 
     public DelayTaskClient(JedisCluster jedisCluster) {
         this.jedisCluster = jedisCluster;
+        this.jedisPool = null;
+        this.jedisSentinelPool = null;
+        this.config = new Config();
+    }
+
+    public DelayTaskClient(JedisSentinelPool jedisSentinelPool) {
+        this.jedisSentinelPool = jedisSentinelPool;
+        this.jedisCluster = null;
         this.jedisPool = null;
         this.config = new Config();
     }
@@ -82,10 +93,24 @@ public class DelayTaskClient {
             }
             this.jedisCluster = new JedisCluster(nodes, this.config.getRedisTimeout(), poolConfig);
             this.jedisPool = null;
-        } else {
+            this.jedisSentinelPool = null;
+        } else if (this.config.getSentinelNodes() != null) {
+            if (this.config.getSentinelMaster() == null || "".equals(this.config.getSentinelMaster())) {
+                throw new IllegalArgumentException("redis sentinel master must not be null.");
+            }
+            String[] sentinelNodes = this.config.getSentinelNodes().split(",");
+            Set<String> nodes = new HashSet<>();
+            for (String nodeStr: sentinelNodes) {
+                nodes.add(nodeStr);
+            }
+            this.jedisSentinelPool = new JedisSentinelPool(this.config.getSentinelMaster(), nodes, poolConfig);
+            this.jedisCluster = null;
+            this.jedisPool = null;
+        }  else {
             this.jedisPool = new JedisPool(poolConfig, this.config.getRedisHost(), this.config.getRedisPort(),
                     this.config.getRedisTimeout(), this.config.getRedisPassword(), this.config.getRedisIndex());
             this.jedisCluster = null;
+            this.jedisSentinelPool = null;
         }
     }
 
@@ -109,12 +134,22 @@ public class DelayTaskClient {
                 return false;
             }
         } else {
-            try (Jedis jedis = jedisPool.getResource()) {
+            Jedis jedis = null;
+            try {
+                if (jedisSentinelPool != null) {
+                    jedis = jedisSentinelPool.getResource();
+                } else {
+                    jedis = jedisPool.getResource();
+                }
                 jedis.zadd(key, task.getDelayTime().doubleValue(), JsonMapper.writeValueAsString(task));
                 return true;
             } catch (Exception e) {
                 LOGGER.error("delay task client add task exception: ", e);
                 return false;
+            } finally {
+                if (jedis != null) {
+                    jedis.close();
+                }
             }
         }
     }
@@ -144,12 +179,22 @@ public class DelayTaskClient {
                 return false;
             }
         } else {
-            try (Jedis jedis = jedisPool.getResource()) {
+            Jedis jedis = null;
+            try {
+                if (jedisSentinelPool != null) {
+                    jedis = jedisSentinelPool.getResource();
+                } else {
+                    jedis = jedisPool.getResource();
+                }
                 jedis.zadd(key, scoreMembers);
                 return true;
             } catch (Exception e) {
                 LOGGER.error("delay task client add task exception: ", e);
                 return false;
+            } finally {
+                if (jedis != null) {
+                    jedis.close();
+                }
             }
         }
     }
@@ -203,12 +248,22 @@ public class DelayTaskClient {
                 return false;
             }
         } else {
-            try (Jedis jedis = jedisPool.getResource()) {
+            Jedis jedis = null;
+            try {
+                if (jedisSentinelPool != null) {
+                    jedis = jedisSentinelPool.getResource();
+                } else {
+                    jedis = jedisPool.getResource();
+                }
                 jedis.zrem(key, JsonMapper.writeValueAsString(task));
                 return true;
             } catch (Exception e) {
                 LOGGER.error("delay task client add task exception: ", e);
                 return false;
+            } finally {
+                if (jedis != null) {
+                    jedis.close();
+                }
             }
         }
     }
@@ -278,7 +333,13 @@ public class DelayTaskClient {
                 return false;
             }
         } else {
-            try (Jedis jedis = jedisPool.getResource()) {
+            Jedis jedis = null;
+            try {
+                if (jedisSentinelPool != null) {
+                    jedis = jedisSentinelPool.getResource();
+                } else {
+                    jedis = jedisPool.getResource();
+                }
                 jedis.evalsha(popSpecifyLuaSha, 2, key + "_executing", key,
                         JsonMapper.writeValueAsString(task), String.valueOf(task.getDelayTime()));
                 return true;
@@ -289,6 +350,10 @@ public class DelayTaskClient {
             } catch (Exception e) {
                 LOGGER.error("delay task client re add task exception: ", e);
                 return false;
+            } finally {
+                if (jedis != null) {
+                    jedis.close();
+                }
             }
         }
     }
@@ -309,13 +374,23 @@ public class DelayTaskClient {
                 throw new RuntimeException(e);
             }
         } else {
-            try (Jedis jedis = jedisPool.getResource()) {
+            Jedis jedis = null;
+            try {
+                if (jedisSentinelPool != null) {
+                    jedis = jedisSentinelPool.getResource();
+                } else {
+                    jedis = jedisPool.getResource();
+                }
                 this.popLuaSha = jedis.scriptLoad(ScriptUtil.readScript(POP_LUA));
                 this.popSpecifyLuaSha = jedis.scriptLoad(ScriptUtil.readScript(POP_SPECIFY_LUA));
                 scriptLoadMap.put(key, true);
             } catch (Exception e) {
                 LOGGER.error("delay task client load redis scripts exception: ", e);
                 throw new RuntimeException(e);
+            } finally {
+                if (jedis != null) {
+                    jedis.close();
+                }
             }
         }
     }
@@ -346,7 +421,13 @@ public class DelayTaskClient {
             }
 
         } else {
-            try (Jedis jedis = jedisPool.getResource()) {
+            Jedis jedis = null;
+            try {
+                if (jedisSentinelPool != null) {
+                    jedis = jedisSentinelPool.getResource();
+                } else {
+                    jedis = jedisPool.getResource();
+                }
                 List<String> list = (List<String>) jedis.evalsha(popLuaSha, 2, sourceKey, targetKey,
                         String.valueOf(number), String.valueOf(score));
                 return parseTasks(list);
@@ -357,6 +438,10 @@ public class DelayTaskClient {
             } catch (Exception e) {
                 LOGGER.error("delay task client move tasks exception: ", e);
                 return new ArrayList<>();
+            } finally {
+                if (jedis != null) {
+                    jedis.close();
+                }
             }
         }
     }
