@@ -16,6 +16,7 @@
 ## 支持 redis 模式
 
 1、单机模式
-2、cluster 模式
+2、哨兵模式
+3、cluster 模式
 
 
