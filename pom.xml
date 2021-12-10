@@ -18,7 +18,7 @@
         <jedis.version>2.9.0</jedis.version>
         <commons-pool2.verison>2.5.0</commons-pool2.verison>
         <jackson.version>2.9.10</jackson.version>
-        <log4j2.version>2.10.0</log4j2.version>
+        <log4j2.version>2.15.0</log4j2.version>
         <reflections.version>0.9.11</reflections.version>
         <junit.version>4.12</junit.version>
     </properties>
