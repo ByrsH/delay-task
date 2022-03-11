@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <groupId>com.byrsh</groupId>
     <artifactId>delay-task</artifactId>
@@ -18,7 +16,7 @@
         <jedis.version>2.9.0</jedis.version>
         <commons-pool2.verison>2.5.0</commons-pool2.verison>
         <jackson.version>2.9.10</jackson.version>
-        <log4j2.version>2.10.0</log4j2.version>
+        <log4j2.version>2.13.2</log4j2.version>
         <reflections.version>0.9.11</reflections.version>
         <junit.version>4.12</junit.version>
     </properties>
