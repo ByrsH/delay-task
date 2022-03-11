@@ -6,7 +6,7 @@
     <groupId>com.byrsh</groupId>
     <artifactId>delay-task</artifactId>
     <name>delay-task</name>
-    <version>0.0.1</version>
+    <version>0.0.2</version>
     <packaging>jar</packaging>
     <modelVersion>4.0.0</modelVersion>
     <description>一个基于redis实现的延迟任务框架</description>
